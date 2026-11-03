@@ -15,3 +15,10 @@ if (window.supabase && typeof window.supabase.createClient === 'function') {
     auth: { ...(options.auth || {}), storageKey: 'prospace-gestao-auth' }
   });
 }
+
+// Garante que os logotipos usem a imagem de marca incluída neste repositório.
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('img').forEach((img) => {
+    if ((img.getAttribute('src') || '').includes('app-icon')) img.src = 'assets/brand-mark.png';
+  });
+});
