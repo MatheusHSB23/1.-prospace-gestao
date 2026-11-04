@@ -274,7 +274,14 @@
     $('#page-view')?.addEventListener('input', onPageInput);
     $('#page-view')?.addEventListener('change', onPageChange);
     $('#modal-root')?.addEventListener('click', event => {
-      if (event.target.matches('.modal-backdrop') || event.target.closest('[data-close-modal]')) closeModal();
+      if (event.target.matches('.modal-backdrop') || event.target.closest('[data-close-modal]')) { closeModal(); return; }
+      const actionButton=event.target.closest('[data-action="use-current-location"]');
+      if (actionButton) {
+        const form=$('#modal-root form');
+        if (!navigator.geolocation) { toast('Geolocalização não disponível neste navegador.'); return; }
+        actionButton.disabled=true; actionButton.textContent='Obtendo localização…';
+        navigator.geolocation.getCurrentPosition(pos=>{form.elements.latitude.value=pos.coords.latitude.toFixed(7);form.elements.longitude.value=pos.coords.longitude.toFixed(7);actionButton.disabled=false;actionButton.textContent='Usar localização deste dispositivo';toast('Coordenadas preenchidas.');},err=>{actionButton.disabled=false;actionButton.textContent='Usar localização deste dispositivo';toast(err.code===1?'Permissão de localização negada.':'Não foi possível obter a localização.');},{enableHighAccuracy:true,timeout:15000,maximumAge:0});
+      }
     });
     $('#modal-root')?.addEventListener('submit', onModalSubmit);
   }
@@ -546,12 +553,12 @@
 
   async function renderUnits() {
     if (!canAdmin()) throw new Error('Somente o administrador geral pode gerenciar unidades.');
-    const rows=await queryRows(state.db.from('health_units').select('id,name,address,city,state,phone,unit_type,opening_hours,active,created_at').order('name'));
+    const rows=await queryRows(state.db.from('health_units').select('id,name,address,city,state,phone,unit_type,opening_hours,latitude,longitude,active,created_at').order('name'));
     state.rows=rows;
     state.units=rows;
     selectUnitFilter();
-    const tableRows=rows.map(u=>`<tr><td class="primary-cell">${esc(u.name)}<span class="sub-cell">${esc(u.unit_type)}</span></td><td>${esc(u.address)}, ${esc(u.city)}/${esc(u.state)}</td><td>${esc(u.phone||'—')}</td><td>${esc(u.opening_hours||'—')}</td><td>${badge(u.active?'active':'inactive')}</td><td><div class="table-actions"><button data-action="edit-unit" data-id="${esc(u.id)}">${iconSvg('edit','button-icon')} Editar</button><button data-action="toggle-unit" data-id="${esc(u.id)}" data-active="${u.active}">${iconSvg(u.active ? 'toggleOff' : 'toggleOn','button-icon')} ${u.active?'Desativar':'Ativar'}</button></div></td></tr>`);
-    $('#page-view').innerHTML=`${pageHeader('Unidades de saúde','Cadastre e mantenha os dados das unidades da rede. A inativação impede novos agendamentos.',`<button class="btn btn-primary" data-action="new-unit">${iconSvg('plus','button-icon')} Nova unidade</button>`)}<div class="panel">${table(['Unidade / tipo','Endereço','Telefone','Horário de funcionamento','Situação','Ações'],tableRows,'Nenhuma unidade cadastrada.')}</div>`;
+    const tableRows=rows.map(u=>`<tr><td class="primary-cell">${esc(u.name)}<span class="sub-cell">${esc(u.unit_type)}</span></td><td>${esc(u.address)}, ${esc(u.city)}/${esc(u.state)}</td><td>${esc(u.phone||'—')}</td><td>${esc(u.opening_hours||'—')}</td><td>${u.latitude!=null&&u.longitude!=null?`<a href="https://www.google.com/maps?q=${encodeURIComponent(u.latitude+','+u.longitude)}" target="_blank" rel="noopener">Ver mapa</a>`:'Não informado'}</td><td>${badge(u.active?'active':'inactive')}</td><td><div class="table-actions"><button data-action="edit-unit" data-id="${esc(u.id)}">${iconSvg('edit','button-icon')} Editar</button><button data-action="toggle-unit" data-id="${esc(u.id)}" data-active="${u.active}">${iconSvg(u.active ? 'toggleOff' : 'toggleOn','button-icon')} ${u.active?'Desativar':'Ativar'}</button></div></td></tr>`);
+    $('#page-view').innerHTML=`${pageHeader('Unidades de saúde','Cadastre e mantenha os dados das unidades da rede. A inativação impede novos agendamentos.',`<button class="btn btn-primary" data-action="new-unit">${iconSvg('plus','button-icon')} Nova unidade</button>`)}<div class="panel">${table(['Unidade / tipo','Endereço','Telefone','Horário de funcionamento','Localização','Situação','Ações'],tableRows,'Nenhuma unidade cadastrada.')}</div>`;
   }
 
   async function renderServices() {
@@ -656,6 +663,8 @@
       ${field('address','Endereço',u.address||'','text','required')}${field('phone','Telefone',u.phone||'','tel')}
       ${field('city','Município',u.city||'','text','required')}${field('state','UF',u.state||'PR','text','required maxlength="2"')}
       ${field('opening_hours','Horário de funcionamento',u.opening_hours||'')}
+      ${field('latitude','Latitude',u.latitude??'','number','step="any"')}${field('longitude','Longitude',u.longitude??'','number','step="any"')}
+      <div class="field full"><button type="button" class="btn btn-outline" data-action="use-current-location">Usar localização deste dispositivo</button><small class="field-hint">Permita o acesso à localização para preencher as coordenadas da unidade.</small></div>
       <div class="field full"><label class="checkbox-line"><input type="checkbox" name="active" ${u.active===false?'':'checked'}> Unidade ativa</label></div></div>`;
   }
   function serviceForm(s={}) {
@@ -831,7 +840,7 @@
     const {error}=await state.db.from('service_requests').update(payload).eq('id',id);if(error)throw error;toast('Solicitação atualizada.');
   }
   async function saveUnit(v,id) {
-    const form=$('#modal-root form'); const payload={name:v.name.trim(),address:v.address.trim(),city:v.city.trim(),state:v.state.trim().toUpperCase(),phone:clean(v.phone),unit_type:v.unit_type.trim(),opening_hours:clean(v.opening_hours),active:checked(new FormData(form),'active')};
+    const form=$('#modal-root form'); const payload={name:v.name.trim(),address:v.address.trim(),city:v.city.trim(),state:v.state.trim().toUpperCase(),phone:clean(v.phone),unit_type:v.unit_type.trim(),opening_hours:clean(v.opening_hours),latitude:clean(v.latitude)===null?null:Number(v.latitude),longitude:clean(v.longitude)===null?null:Number(v.longitude),active:checked(new FormData(form),'active')};
     const {error}=await (id?state.db.from('health_units').update(payload).eq('id',id):state.db.from('health_units').insert(payload));if(error)throw error;toast(id?'Unidade atualizada.':'Unidade cadastrada.');
   }
   async function saveService(v,id) {
